@@ -605,7 +605,7 @@ function startGoldRainClick() {
 				timer = 0;
 				console.log('Let the GOLD rain!');
 				clickTimer = window.setInterval(clickTheThing, 1000/clickRate);
-				timer = 150;
+				timer = 9999999;
 			}
 		}
 		lastAction = i;
