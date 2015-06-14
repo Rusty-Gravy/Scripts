@@ -8,10 +8,18 @@
 
 // Re-uploaded for ease of access without using any of that monkey bullshit.
 
-// 1. Open the Steam Summer Sale in your Browser
-// 2. Copy and paste all the code below, open your browser, open the console (Ctrl + Shift + K) and then paste it all into your Javascript input.
+// 1. Open the Steam Summer Sale Minigame in your Browser. (http://steamcommunity.com/minigame/towerattack/)
+// 2. Copy and paste all the code below and open your browser.
+// 3. Open the console (Ctrl + Shift + K For Firefox | Ctrl + Shift + J For Chrome) and then paste it all into your Javascript input.
+// 4. Let it run in the background. Check occasionally to select upgrades.
 
 var isAlreadyRunning = false;
+var autoClickGoldRain = true;
+
+var clickRate = 50; // change to number of desired clicks per second
+var timer = 0;
+var lastAction = 500; // start with the max. Array length
+var clickTimer;
 
 var ABILITIES = {
 	"MORALE_BOOSTER": 5,
@@ -25,23 +33,27 @@ var ABILITIES = {
 };
 
 var ITEMS = {
-	"REVIVE": 13,
-	"GOLD_RAIN": 17,
-	"GOD_MODE": 21,
-	"REFLECT_DAMAGE":24,
-	"CRIT": 18,
-	"CRIPPLE_MONSTER": 15,
-	"CRIPPLE_SPAWNER": 14,
-	"MAXIMIZE_ELEMENT": 16
-}
-	
+    "REVIVE": 13,
+    "CRIPPLE_SPAWNER": 14,
+    "CRIPPLE_MONSTER": 15,
+    "MAXIMIZE_ELEMENT": 16,
+    "GOLD_RAIN": 17,
+    "CRIT": 18,
+    "PUMPED_UP": 19,
+    "THROW_MONEY": 20,
+    "GOD_MODE": 21,
+    "TREASURE": 22,
+    "STEAL_HEALTH": 23,
+    "REFLECT_DAMAGE": 24
+};
+
 var ENEMY_TYPE = {
-	"SPAWNER":0,
-	"CREEP":1,
-	"BOSS":2,
-	"MINIBOSS":3,
-	"TREASURE":4
-}
+    "SPAWNER": 0,
+    "CREEP": 1,
+    "BOSS": 2,
+    "MINIBOSS": 3,
+    "TREASURE": 4
+};
 
 if (thingTimer){
 	window.clearInterval(thingTimer);
@@ -78,8 +90,13 @@ function doTheThing() {
 		useNapalmIfRelevant();
 		useTacticalNukeIfRelevant();
 		useCrippleSpawnerIfRelevant();
+		useMetalDetectorIfRelevant();
 		useGoldRainIfRelevant();
 		attemptRespawn();
+
+		if(autoClickGoldRain) {
+			startGoldRainClick();
+		}
 
 		isAlreadyRunning = false;
 	}
@@ -325,11 +342,11 @@ function useNapalmIfRelevant() {
 
 function useMoraleBoosterIfRelevant() {
 	// Check if Morale Booster is purchased
-	if(hasPurchasedAbility(5)) {
-		if (isAbilityCoolingDown(5)) {
+	if (hasPurchasedAbility(ABILITIES.MORALE_BOOSTER)) {
+		if (isAbilityCoolingDown(ABILITIES.MORALE_BOOSTER)) {
 			return;
 		}
-		
+
 		//Check lane has monsters so the hype isn't wasted
 		var currentLane = g_Minigame.CurrentScene().m_nExpectedLane;
 		var enemyCount = 0;
@@ -339,14 +356,15 @@ function useMoraleBoosterIfRelevant() {
 			var enemy = g_Minigame.CurrentScene().GetEnemy(currentLane, i);
 			if (enemy) {
 				enemyCount++;
-				if (enemy.m_data.type == 0) { 
+				if (enemy.m_data.type == 0) {
 					enemySpawnerExists = true;
 				}
 			}
 		}
 		//Hype everybody up!
 		if (enemySpawnerExists && enemyCount >= 3) {
-			triggerAbility(5);
+			console.log("Morale Booster is purchased, cooled down, and needed. Rally around, everyone!");
+			triggerAbility(ABILITIES.MORALE_BOOSTER);
 		}
 	}
 }
@@ -377,6 +395,25 @@ function useTacticalNukeIfRelevant() {
 		if (enemySpawnerExists && enemySpawnerHealthPercent < 0.6 && enemySpawnerHealthPercent > 0.3) {
 			console.log("Tactical Nuke is purchased, cooled down, and needed. Nuke 'em.");
 			triggerAbility(ABILITIES.NUKE);
+		}
+	}
+}
+
+function useMetalDetectorIfRelevant() {
+	if (hasPurchasedAbility(ABILITIES.METAL_DETECTOR)) {
+		if (isAbilityCoolingDown(ABILITIES.METAL_DETECTOR)) {
+			return;
+		}
+
+		var enemy = g_Minigame.m_CurrentScene.GetEnemy(g_Minigame.m_CurrentScene.m_rgPlayerData.current_lane, g_Minigame.m_CurrentScene.m_rgPlayerData.target);
+
+		if (enemy && enemy.m_data.type == ENEMY_TYPE.BOSS) {
+			var enemyBossHealthPercent = enemy.m_flDisplayedHP / enemy.m_data.max_hp;
+
+			if (enemyBossHealthPercent < 0.3 ) {
+				console.log('Metal detector is purchased and cooled down, Triggering it on boss');
+				triggerAbility(ABILITIES.METAL_DETECTOR);
+			}
 		}
 	}
 }
@@ -480,20 +517,20 @@ function triggerAbility(abilityId) {
 }
 
 function toggleAbilityVisibility(abilityId, show) {
-    var vis = show === true ? "visible" : "hidden";
+	var vis = show === true ? "visible" : "hidden";
 
-    var elem = document.getElementById('ability_' + abilityId);
-    if (elem && elem.childElements() && elem.childElements().length >= 1) {
-        elem.childElements()[0].style.visibility = vis;
-    }
+	var elem = document.getElementById('ability_' + abilityId);
+	if (elem && elem.childElements() && elem.childElements().length >= 1) {
+		elem.childElements()[0].style.visibility = vis;
+	}
 }
 
 function disableAbility(abilityId) {
-    toggleAbilityVisibility(abilityId, false);
+	toggleAbilityVisibility(abilityId, false);
 }
 
 function enableAbility(abilityId) {
-    toggleAbilityVisibility(abilityId, true);
+	toggleAbilityVisibility(abilityId, true);
 }
 
 function isAbilityEnabled(abilityId) {
@@ -505,20 +542,20 @@ function isAbilityEnabled(abilityId) {
 }
 
 function toggleAbilityItemVisibility(abilityId, show) {
-    var vis = show === true ? "visible" : "hidden";
+	var vis = show === true ? "visible" : "hidden";
 
-    var elem = document.getElementById('abilityitem_' + abilityId);
-    if (elem && elem.childElements() && elem.childElements().length >= 1) {
-        elem.childElements()[0].style.visibility = show;
-    }
+	var elem = document.getElementById('abilityitem_' + abilityId);
+	if (elem && elem.childElements() && elem.childElements().length >= 1) {
+		elem.childElements()[0].style.visibility = show;
+	}
 }
 
 function disableAbilityItem(abilityId) {
-    toggleAbilityItemVisibility(abilityId, false);
+	toggleAbilityItemVisibility(abilityId, false);
 }
 
 function enableAbilityItem(abilityId) {
-    toggleAbilityItemVisibility(abilityId, true);
+	toggleAbilityItemVisibility(abilityId, true);
 }
 
 function isAbilityItemEnabled(abilityId) {
@@ -527,6 +564,56 @@ function isAbilityItemEnabled(abilityId) {
 		return elem.childElements()[0].style.visibility == "visible";
 	}
 	return false;
+}
+
+function clickTheThing() {
+	// If we're going to be clicking, we should reset g_msTickRate
+	g_msTickRate = 1100;
+
+	g_Minigame.m_CurrentScene.DoClick(
+		{
+			data: {
+				getLocalPosition: function() {
+					var enemy = g_Minigame.m_CurrentScene.GetEnemy(
+						g_Minigame.m_CurrentScene.m_rgPlayerData.current_lane,
+						g_Minigame.m_CurrentScene.m_rgPlayerData.target);
+					var laneOffset = enemy.m_nLane * 440;
+
+					return {
+						x: enemy.m_Sprite.position.x - laneOffset,
+						y: enemy.m_Sprite.position.y - 52
+					}
+				}
+			}
+		}
+	);
+	timer = timer - 1;
+}
+
+function startGoldRainClick() {
+	var actions = g_Minigame.CurrentScene().m_rgActionLog;
+	if(lastAction > actions.length){
+		lastAction = actions.length;
+	}
+	
+	if(actions.length > lastAction){
+		for (var i = lastAction; i < actions.length; i++) {
+			//console.log(actions[i].ability + " " + actions[i].type);
+			if(actions[i].ability == 17 && actions[i].type == 'ability'){
+				clearInterval(clickTimer);
+				timer = 0;
+				console.log('Let the GOLD rain!');
+				clickTimer = window.setInterval(clickTheThing, 1000/clickRate);
+				timer = 150;
+			}
+		}
+		lastAction = i;
+	}
+	
+	if(timer <= 0){
+		clearInterval(clickTimer);
+		timer = 0;
+	}
 }
 
 var thingTimer = window.setInterval(function(){
