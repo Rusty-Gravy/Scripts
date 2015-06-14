@@ -12,6 +12,7 @@
 // 2. Copy and paste all the code below and open your browser.
 // 3. Open the console (Ctrl + Shift + K For Firefox | Ctrl + Shift + J For Chrome) and then paste it all into your Javascript input.
 // 4. Let it run in the background. Check occasionally to select upgrades.
+// 5. To stop the script, just enter this into the console: window.clearTimeout(thingTimer);
 
 var isAlreadyRunning = false;
 var autoClickGoldRain = true;
