@@ -6,7 +6,7 @@
 // @downloadURL https://raw.githubusercontent.com/Rusty-Gravy/Scripts/master/autoPlay.user.js
 // ==/UserScript==
 
-// Re-uploaded for ease of access without using any of that monkey bullshit.
+// Optimized + Re-uploaded for ease of access without using any of that monkey bullshit.
 
 // 1. Open the Steam Summer Sale Minigame in your Browser. (http://steamcommunity.com/minigame/towerattack/)
 // 2. Copy and paste all the code below and open your browser.
