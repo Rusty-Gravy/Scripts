@@ -1,9 +1,8 @@
 // ==UserScript== 
-// @name Monster Minigame AutoScript
-// @version 1.8
-// @description A script that runs the Steam Monster Minigame for you.
-// @match http://steamcommunity.com/minigame/towerattack*
-// @downloadURL https://raw.githubusercontent.com/Rusty-Gravy/Scripts/master/autoPlay.user.js
+// name - Monster Minigame AutoScript
+// downloadURL - https://raw.githubusercontent.com/Rusty-Gravy/Scripts/master/autoPlay.user.js
+// description - A script that runs the Steam Monster Minigame for you.
+// match - http://steamcommunity.com/minigame/towerattack*
 // ==/UserScript==
 
 // Optimized + Re-uploaded for ease of access without using any of that monkey bullshit.
