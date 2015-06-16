@@ -15,11 +15,17 @@
 
 var isAlreadyRunning = false;
 var autoClickGoldRain = true;
+var purchaseUpgradeToggle = true;
 
-var clickRate = 301; // change to number of desired clicks per second
+var clickRate = 10; // change to number of desired clicks per second
 var timer = 0;
-var lastAction = 500; // start with the max. Array length
+var lastAction = 500; //start with the max. Array length
 var clickTimer;
+var purchasedShieldsWhileRespawning = false;
+
+var avgClickRate = 5; // to keep track of the average clicks per second that the game actually records
+var totalClicksPastFiveSeconds = avgClickRate * 5; // keeps track of total clicks over the past 5 seconds for a moving average
+var previousTickTime = 0; // tracks the last time we received an update from the game
 
 var ABILITIES = {
 	"MORALE_BOOSTER": 5,
@@ -44,7 +50,10 @@ var ITEMS = {
     "GOD_MODE": 21,
     "TREASURE": 22,
     "STEAL_HEALTH": 23,
-    "REFLECT_DAMAGE": 24
+    "REFLECT_DAMAGE": 24,
+	"FEELING_LUCKY": 25,
+	"WORMHOLE": 26,
+	"LIKE_NEW": 27
 };
 
 var ENEMY_TYPE = {
@@ -55,11 +64,30 @@ var ENEMY_TYPE = {
     "TREASURE": 4
 };
 
+// Each elemental damage, lucky shot and loot have their own type in m_rgTuningData
+var UPGRADE_TYPES = {
+	"ARMOR": 0,
+	"DPS": 1,
+	"CLICK_DAMAGE": 2,
+	"ELEMENTAL_FIRE": 3,
+	"ELEMENTAL_WATER": 4,
+	"ELEMENTAL_AIR": 5,
+	"ELEMENTAL_EARTH": 6,
+	"LUCKY_SHOT": 7,
+	"ABILITY": 8,
+	"LOOT": 9
+};
+
 if (thingTimer){
 	window.clearInterval(thingTimer);
 }
 
 function firstRun() {
+	// if the purchase item window is open, spend your badge points!
+	if (g_Minigame.CurrentScene().m_UI.m_spendBadgePointsDialog.is(":visible")) {
+		purchaseBadgeItems();
+	}
+
 	// disable particle effects - this drastically reduces the game's memory leak
 	if (g_Minigame !== undefined) {
 		g_Minigame.CurrentScene().DoClickEffect = function() {};
@@ -67,7 +95,7 @@ function firstRun() {
 		g_Minigame.CurrentScene().SpawnEmitter = function(emitter) {
 			emitter.emit = false;
 			return emitter;
-		}
+		};
 	}
 
 	// disable enemy flinching animation when they get hit
@@ -83,7 +111,13 @@ function doTheThing() {
 		isAlreadyRunning = true;
 
 		goToLaneWithBestTarget();
+
+		if (purchaseUpgradeToggle){
+			purchaseUpgrades();
+		}
+
 		useGoodLuckCharmIfRelevant();
+		useCritIfRelevant();
 		useMedicsIfRelevant();
 		useMoraleBoosterIfRelevant();
 		useClusterBombIfRelevant();
@@ -100,6 +134,76 @@ function doTheThing() {
 
 		isAlreadyRunning = false;
 	}
+}
+
+function purchaseBadgeItems() {
+	// Spends badge points (BP's) when joining a new game.
+	// Dict contains the priority in terms of amount to buy (percentage of purchase). Probably a nicer way to do this...
+	// First version of priorities is based on this badge point table 'usefulness' from reddit:
+	// http://www.reddit.com/r/Steam/comments/39i0qc/psa_how_the_monster_game_works_an_indepth/
+	var abilityItemPriority = [
+		[ITEMS.GOLD_RAIN, 50],
+		[ITEMS.CRIPPLE_MONSTER, 10],
+		[ITEMS.CRIPPLE_SPAWNER, 8],
+		[ITEMS.MAXIMIZE_ELEMENT, 7],
+		[ITEMS.CRIT, 5],
+		[ITEMS.TREASURE, 5],
+		[ITEMS.REVIVE, 5],
+		[ITEMS.STEAL_HEALTH, 4],
+		[ITEMS.GOD_MODE, 3],
+		[ITEMS.REFLECT_DAMAGE, 2],
+		[ITEMS.PUMPED_UP, 1]
+		//[ITEMS.THROW_MONEY, 0]
+		//[ITEMS.FEELING_LUCKY, 0]
+		//[ITEMS.WORMHOLE, 0]
+		//[ITEMS.LIKE_NEW, 0]
+		// Only go up to the second-last item. Throw money should never be used,
+		// but it's here just in case. Similarly, feeling lucky, wormhole, and
+		// like new are ridiculously priced and honestly aren't worth it
+	];
+
+	// Being extra paranoid about spending, since abilities update slowly.
+	var safeToBuy = true;
+	var intervalID = window.setInterval( function() {
+		var queueLen = g_Minigame.CurrentScene().m_rgPurchaseItemsQueue.length;
+		if (safeToBuy && queueLen > 0)
+			safeToBuy = false;
+		else if (!safeToBuy && queueLen === 0)
+			safeToBuy = true;
+	}, 100);
+
+	var buyItem = function(id) {
+		g_Minigame.CurrentScene().TrySpendBadgePoints(document.getElementById('purchase_abilityitem_' + id));
+	};
+
+	var badgePoints = g_Minigame.CurrentScene().m_rgPlayerTechTree.badge_points;
+
+	for (var i = 0; i < abilityItemPriority.length; i++) {
+		var abilityItem = abilityItemPriority[i];
+		var cost = $J(document.getElementById('purchase_abilityitem_' + abilityItem[0])).data('cost');
+
+		// Maximum amount to spend on each upgrade. i.e. 100 BP on item with a 10% share = 10 BP
+		var maxSpend = badgePoints * abilityItem[1] / 100;
+		var spent = 0;
+
+		// Don't over-spend the budget for each item, and don't overdraft on the BP
+		while (spent < maxSpend && cost <= g_Minigame.CurrentScene().m_rgPlayerTechTree.badge_points) {
+			if (!safeToBuy)
+				continue;
+			buyItem(abilityItem[0]);
+			spent += cost;
+		}
+	}
+	
+	// Get any stragling 1 or 2 BP left over, using the last item (1 BP) in the priority array
+	while (g_Minigame.CurrentScene().m_rgPlayerTechTree.badge_points > 0) {
+		if (!safeToBuy)
+			continue;
+		buyItem(abilityItemPriority[abilityItemPriority.length - 1][0]);
+	}
+
+	// Get rid of that interval, it could end up taking up too many resources
+	window.clearInterval(intervalID);
 }
 
 function goToLaneWithBestTarget() {
@@ -244,6 +348,137 @@ function goToLaneWithBestTarget() {
 	}
 }
 
+
+function purchaseUpgrades() {
+	var oddsOfElement = 1 - (0.75*0.75*0.75); //This values elemental too much because best element lanes are not focused(0.578)
+	var avgClicksPerSecond = 1;	//Set this yourself to serve your needs
+	
+	var upgrades = g_Minigame.CurrentScene().m_rgTuningData.upgrades.slice(0);
+
+	var buyUpgrade = function(id) {
+		console.log("Buying " + upgrades[id].name + " level " + (g_Minigame.CurrentScene().GetUpgradeLevel(id) + 1));
+		if(id >= 3 && 6 >= id) { //If upgrade is element damage
+			g_Minigame.CurrentScene().TryUpgrade(document.getElementById('upgr_' + id).childElements()[3]);
+		} else {
+			g_Minigame.CurrentScene().TryUpgrade(document.getElementById('upgr_' + id).childElements()[0].childElements()[1]);
+		}
+	};
+	
+	var myGold = g_Minigame.CurrentScene().m_rgPlayerData.gold;
+	
+	//Initial values for armor & damage
+	var bestUpgradeForDamage,bestUpgradeForArmor;
+	var highestUpgradeValueForDamage = 0;
+	var highestUpgradeValueForArmor = 0;
+	var bestElement = -1;
+	var highestElementLevel = 0;
+	
+	var critMultiplier = g_Minigame.CurrentScene().m_rgPlayerTechTree.damage_multiplier_crit;
+	var critRate = g_Minigame.CurrentScene().m_rgPlayerTechTree.crit_percentage - g_Minigame.CurrentScene().m_rgTuningData.player.crit_percentage;
+	var dpc = g_Minigame.CurrentScene().m_rgPlayerTechTree.damage_per_click;
+
+	
+	for( var i=0; i< upgrades.length; i++ ) {
+		var upgrade = upgrades[i];
+		
+		if ( upgrade.required_upgrade != undefined )
+		{
+			var requiredUpgradeLevel = upgrade.required_upgrade_level != undefined ? upgrade.required_upgrade_level : 1;
+			var parentUpgradeLevel = g_Minigame.CurrentScene().GetUpgradeLevel(upgrade.required_upgrade);
+			if ( requiredUpgradeLevel > parentUpgradeLevel )
+			{
+				//If upgrade is not available, we skip it
+				continue;
+			}
+		}
+	
+		var upgradeCurrentLevel = g_Minigame.CurrentScene().GetUpgradeLevel(i);
+		var upgradeCost = g_Minigame.CurrentScene().GetUpgradeCost(i);
+		
+		switch(upgrade.type) {
+			case UPGRADE_TYPES.ARMOR:
+				if(upgrade.multiplier / upgradeCost > highestUpgradeValueForArmor) { // hp increase per moneys
+					bestUpgradeForArmor = i;
+					highestUpgradeValueForArmor = upgrade.multiplier / upgradeCost;
+				}
+				break;
+			case UPGRADE_TYPES.CLICK_DAMAGE:
+				if((critRate * critMultiplier + 1) * avgClicksPerSecond * upgrade.multiplier / upgradeCost > highestUpgradeValueForDamage) { // dmg increase per moneys
+					bestUpgradeForDamage = i;
+					highestUpgradeValueForDamage = (critRate * critMultiplier + 1) * avgClicksPerSecond * upgrade.multiplier / upgradeCost;
+				}
+				break;
+			case UPGRADE_TYPES.DPS:
+				if(upgrade.multiplier / upgradeCost > highestUpgradeValueForDamage) { // dmg increase per moneys
+					bestUpgradeForDamage = i;
+					highestUpgradeValueForDamage = upgrade.multiplier / upgradeCost;
+				}
+				break;
+			case UPGRADE_TYPES.ELEMENTAL_FIRE:
+			case UPGRADE_TYPES.ELEMENTAL_WATER:
+			case UPGRADE_TYPES.ELEMENTAL_AIR:
+			case UPGRADE_TYPES.ELEMENTAL_EARTH:
+				/*if(upgradeCurrentLevel > highestElementLevel){
+					highestElementLevel = upgradeCurrentLevel;
+					bestElement = i;
+				}*/
+				break;
+			case UPGRADE_TYPES.LUCKY_SHOT:
+				if(upgrade.multiplier * dpc * critRate * avgClicksPerSecond / upgradeCost > highestUpgradeValueForDamage) { // dmg increase per moneys
+					bestUpgradeForDamage = i;
+					highestUpgradeValueForDamage = upgrade.multiplier / upgradeCost;
+				}
+				break;
+			default:
+				break;
+		}
+	}
+	/*
+	if(bestElement != -1) {
+		//Let user choose what element to level up by adding the point to desired element
+		upgradeCost = g_Minigame.CurrentScene().GetUpgradeCost(bestElement);
+		
+		var dps = g_Minigame.CurrentScene().m_rgPlayerTechTree.dps;
+		dps = dps + (g_Minigame.CurrentScene().m_rgPlayerTechTree.damage_per_click * avgClicksPerSecond);
+		if(0.25 * oddsOfElement * dps * upgrades[bestElement].multiplier / upgradeCost > highestUpgradeValueForDamage) { //dmg increase / moneys
+			//bestUpgradeForDamage = bestElement; // Not doing this because this values element damage too much
+		}
+	}*/
+
+	var currentHealth = g_Minigame.CurrentScene().m_rgPlayerData.hp;
+	var myMaxHealth = g_Minigame.CurrentScene().m_rgPlayerTechTree.max_hp;
+	// check if health is below 30%
+	var hpPercent = currentHealth / myMaxHealth;
+	if (hpPercent < 0.3) {
+		// Prioritize armor over damage
+		// - Should we by any armor we can afford or just wait for the best one possible?
+		//	 currently waiting
+		upgradeCost = g_Minigame.CurrentScene().GetUpgradeCost(bestUpgradeForArmor);
+
+		// Prevent purchasing multiple shields while waiting to respawn.
+		if (purchasedShieldsWhileRespawning && currentHealth < 1) {
+			return;
+		}
+
+		if(myGold > upgradeCost && bestUpgradeForArmor !== undefined) {
+			buyUpgrade(bestUpgradeForArmor);
+			myGold = g_Minigame.CurrentScene().m_rgPlayerData.gold;
+
+			purchasedShieldsWhileRespawning = currentHealth < 1;
+		}
+	}
+	else if (purchasedShieldsWhileRespawning) {
+		purchasedShieldsWhileRespawning = false;
+	}
+	
+	// Try to buy some damage
+	upgradeCost = g_Minigame.CurrentScene().GetUpgradeCost(bestUpgradeForDamage);
+
+	if(myGold > upgradeCost && bestUpgradeForDamage !== undefined) {
+		buyUpgrade(bestUpgradeForDamage);
+	}
+}
+
 function useMedicsIfRelevant() {
 	var myMaxHealth = g_Minigame.CurrentScene().m_rgPlayerTechTree.max_hp;
 	
@@ -254,17 +489,30 @@ function useMedicsIfRelevant() {
 	}
 	
 	// check if Medics is purchased and cooled down
-	if (hasPurchasedAbility(ABILITIES.MEDIC) && !isAbilityCoolingDown(ABILITIES.MEDIC)) {
-
+	if(numItem(ITEMS.PUMPED_UP) > 0 && !isAbilityCoolingDown(ITEMS.PUMPED_UP)) {
+		// The item PUMPED UP will be the first used in order to regenerate our health
+		// This is because PUMPED_UP is basically a better version of "MEDIC"
+		// and it gets dropped by monsters as loot
+		console.log('We can pump up our HP. Trigger it.');
+		triggerItem(ITEMS.PUMPED_UP);
+	} else if (hasPurchasedAbility(ABILITIES.MEDIC) && !isAbilityCoolingDown(ABILITIES.MEDIC)) {
 		// Medics is purchased, cooled down, and needed. Trigger it.
 		console.log('Medics is purchased, cooled down, and needed. Trigger it.');
 		triggerAbility(ABILITIES.MEDIC);
-	} else if (hasItem(ITEMS.GOD_MODE) && !isAbilityCoolingDown(ITEMS.GOD_MODE)) {
-		
+	} else if (numItem(ITEMS.GOD_MODE) > 0 && !isAbilityCoolingDown(ITEMS.GOD_MODE)) {
+		// Don't have Medic or Pumped Up? 
+		// We'll use godmode so we can delay our death in case the cooldowns come back.
+		// Instead of just firing it, we could maybe only use godmode
+		// if the medic / pumped up ability is going to be back before godmode expires
 		console.log('We have god mode, cooled down, and needed. Trigger it.');
 		triggerItem(ITEMS.GOD_MODE);
+	} else if(numItem(ITEMS.STEAL_HEALTH) > 0 && !isAbilityCoolingDown(ITEMS.STEAL_HEALTH)) {
+		// Use Steal Health as a last resort as that 
+		// allows us to gain HP depending on our click-damage
+		console.log("Last resort for survival: STEALING HEALTH");
+		triggerItem(ITEMS.STEAL_HEALTH);
 	}
-};
+}
 
 // Use Good Luck Charm if doable
 function useGoodLuckCharmIfRelevant() {
@@ -307,7 +555,16 @@ function useClusterBombIfRelevant() {
 		}
 		//Bombs away if spawner and 2+ other monsters
 		if (enemySpawnerExists && enemyCount >= 3) {
-			triggerAbility(ABILITIES.CLUSTER_BOMB);
+			// Wait 60 seconds if the cooldown ability
+			// is within 1 minute of coming back
+			if (getCooldownTime(ABILITIES.COOLDOWN) > 60 || !hasPurchasedAbility(ABILITIES.COOLDOWN) || (hasPurchasedAbility(ABILITIES.COOLDOWN) && !isAbilityCoolingDown(ABILITIES.COOLDOWN))) {
+				if (hasPurchasedAbility(ABILITIES.COOLDOWN) && !isAbilityCoolingDown(ABILITIES.COOLDOWN) && !currentLaneHasAbility(ABILITIES.COOLDOWN)) {
+					console.log("Cooling down prior to long-downtime ability use");
+					triggerAbility(ABILITIES.COOLDOWN);
+				} else {
+					triggerAbility(ABILITIES.CLUSTER_BOMB);
+				}
+			}
 		}
 	}
 }
@@ -335,7 +592,16 @@ function useNapalmIfRelevant() {
 		}
 		//Burn them all if spawner and 2+ other monsters
 		if (enemySpawnerExists && enemyCount >= 3) {
-			triggerAbility(ABILITIES.NAPALM);
+			// Wait 60 seconds if the cooldown ability
+			// is within 1 minute of coming back
+			if (getCooldownTime(ABILITIES.COOLDOWN) > 60 || !hasPurchasedAbility(ABILITIES.COOLDOWN) || (hasPurchasedAbility(ABILITIES.COOLDOWN) && !isAbilityCoolingDown(ABILITIES.COOLDOWN))) {
+				if (hasPurchasedAbility(ABILITIES.COOLDOWN) && !isAbilityCoolingDown(ABILITIES.COOLDOWN) && !currentLaneHasAbility(ABILITIES.COOLDOWN)) {
+					console.log("Cooling down prior to long-downtime ability use");
+					triggerAbility(ABILITIES.COOLDOWN);
+				} else {
+					triggerAbility(ABILITIES.NAPALM);
+				}
+			}
 		}
 	}
 }
@@ -346,7 +612,6 @@ function useMoraleBoosterIfRelevant() {
 		if (isAbilityCoolingDown(ABILITIES.MORALE_BOOSTER)) {
 			return;
 		}
-
 		//Check lane has monsters so the hype isn't wasted
 		var currentLane = g_Minigame.CurrentScene().m_nExpectedLane;
 		var enemyCount = 0;
@@ -394,7 +659,16 @@ function useTacticalNukeIfRelevant() {
 		// If there is a spawner and it's health is between 60% and 30%, nuke it!
 		if (enemySpawnerExists && enemySpawnerHealthPercent < 0.6 && enemySpawnerHealthPercent > 0.3) {
 			console.log("Tactical Nuke is purchased, cooled down, and needed. Nuke 'em.");
-			triggerAbility(ABILITIES.NUKE);
+			// Wait 60 seconds if the cooldown ability
+			// is within 1 minute of coming back
+			if (getCooldownTime(ABILITIES.COOLDOWN) > 60 || !hasPurchasedAbility(ABILITIES.COOLDOWN) || (hasPurchasedAbility(ABILITIES.COOLDOWN) && !isAbilityCoolingDown(ABILITIES.COOLDOWN))) {
+				if (hasPurchasedAbility(ABILITIES.COOLDOWN) && !isAbilityCoolingDown(ABILITIES.COOLDOWN) && !currentLaneHasAbility(ABILITIES.COOLDOWN)) {
+					console.log("Cooling down prior to long-downtime ability use");
+					triggerAbility(ABILITIES.COOLDOWN);
+				} else {
+					triggerAbility(ABILITIES.NUKE);
+				}
+			}
 		}
 	}
 }
@@ -420,7 +694,7 @@ function useMetalDetectorIfRelevant() {
 
 function useCrippleSpawnerIfRelevant() {
 	// Check if Cripple Spawner is available
-	if(hasItem(ITEMS.CRIPPLE_SPAWNER)) {
+	if(numItem(ITEMS.CRIPPLE_SPAWNER) > 0) {
 		if (isAbilityCoolingDown(ITEMS.CRIPPLE_SPAWNER)) {
 			return;
 		}
@@ -450,22 +724,34 @@ function useCrippleSpawnerIfRelevant() {
 
 function useGoldRainIfRelevant() {
 	// Check if gold rain is purchased
-	if (hasItem(ITEMS.GOLD_RAIN)) {
+	if (numItem(ITEMS.GOLD_RAIN) > 0) {
 		if (isAbilityCoolingDown(ITEMS.GOLD_RAIN)) {
 			return;
 		}
+
+		if(Math.random() > g_Minigame.CurrentScene().m_rgGameData.level / 10000) {
+	        	return;
+	        }
 
 		var enemy = g_Minigame.m_CurrentScene.GetEnemy(g_Minigame.m_CurrentScene.m_rgPlayerData.current_lane, g_Minigame.m_CurrentScene.m_rgPlayerData.target);
 		// check if current target is a boss, otherwise its not worth using the gold rain
 		if (enemy && enemy.m_data.type == ENEMY_TYPE.BOSS) {	
 			var enemyBossHealthPercent = enemy.m_flDisplayedHP / enemy.m_data.max_hp;
 
-		  if (enemyBossHealthPercent >= 0.6) { // We want sufficient time for the gold rain to be applicable
+			if (enemyBossHealthPercent >= 0.3) { // We want sufficient time for the gold rain to be applicable
 				// Gold Rain is purchased, cooled down, and needed. Trigger it.
 				console.log('Gold rain is purchased and cooled down, Triggering it on boss');
 				triggerItem(ITEMS.GOLD_RAIN);
 			}
 		}
+	}
+}
+
+// Upgrades the crit by 1% if we have the CRIT item available for use.
+function useCritIfRelevant() {
+	if(numItem(ITEMS.CRIT) > 0 && !isAbilityCoolingDown(ITEMS.CRIT))
+	{
+		triggerItem(ITEMS.CRIT);
 	}
 }
 
@@ -481,14 +767,43 @@ function isAbilityActive(abilityId) {
 	return g_Minigame.CurrentScene().bIsAbilityActive(abilityId);
 }
 
-function hasItem(itemId) {
+function numItem(itemId) {
 	for ( var i = 0; i < g_Minigame.CurrentScene().m_rgPlayerTechTree.ability_items.length; ++i ) {
 		var abilityItem = g_Minigame.CurrentScene().m_rgPlayerTechTree.ability_items[i];
 		if (abilityItem.ability == itemId) {
-			return true;
+			return abilityItem.quantity;
 		}
 	}
-	return false;
+	return 0;
+}
+
+// This calculates a 5 second moving average of clicks per second based
+// on the values that the game is recording.
+function updateAvgClickRate() {
+	// Make sure we have updated info from the game first
+	if (previousTickTime != g_Minigame.CurrentScene().m_nLastTick){
+		totalClicksPastFiveSeconds -= avgClickRate;
+		totalClicksPastFiveSeconds += g_Minigame.CurrentScene().m_nLastClicks / ((g_Minigame.CurrentScene().m_nLastTick - previousTickTime) / 1000);
+		avgClickRate = totalClicksPastFiveSeconds / 5;
+		previousTickTime = g_Minigame.CurrentScene().m_nLastTick;
+	}
+}
+// disable enemy flinching animation when they get hit
+function disableFlinchingAnimation() {
+	if (CEnemy !== undefined) {
+		CEnemy.prototype.TakeDamage = function() {};
+		CEnemySpawner.prototype.TakeDamage = function() {};
+		CEnemyBoss.prototype.TakeDamage = function() {};
+	}
+}
+// disable damage text from clicking
+function disableDamageText() {
+	g_Minigame.CurrentScene().DoClickEffect = function() {};
+	g_Minigame.CurrentScene().DoCritEffect = function( nDamage, x, y, additionalText ) {};
+}
+
+function getCooldownTime(abilityId) {
+	return g_Minigame.CurrentScene().GetCooldownForAbility(abilityId);
 }
 
 function isAbilityCoolingDown(abilityId) {
@@ -566,8 +881,16 @@ function isAbilityItemEnabled(abilityId) {
 	return false;
 }
 
+function currentLaneHasAbility(abilityID) {
+	var lane = g_Minigame.CurrentScene().m_rgPlayerData.current_lane;
+	if (typeof(g_Minigame.m_CurrentScene.m_rgLaneData[lane].abilities[abilityID]) == 'undefined')
+		return 0;
+	return g_Minigame.m_CurrentScene.m_rgLaneData[lane].abilities[abilityID];
+}
+
 function clickTheThing() {
 	// If we're going to be clicking, we should reset g_msTickRate
+	// There's a reddit thread about why and we might as well be safe
 	g_msTickRate = 1100;
 
 	g_Minigame.m_CurrentScene.DoClick(
@@ -603,8 +926,8 @@ function startGoldRainClick() {
 				clearInterval(clickTimer);
 				timer = 0;
 				console.log('Let the GOLD rain!');
-				clickTimer = window.setInterval(clickTheThing, 1000/clickRate);
-				timer = 9999999;
+				clickTimer = window.setInterval(clickTheThing, 1000 / clickRate);
+				timer = 9001;
 			}
 		}
 		lastAction = i;
