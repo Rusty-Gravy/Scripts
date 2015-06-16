@@ -17,7 +17,7 @@ var isAlreadyRunning = false;
 var autoClickGoldRain = true;
 var purchaseUpgradeToggle = true;
 
-var clickRate = 10; // change to number of desired clicks per second
+var clickRate = 301; // change to number of desired clicks per second
 var timer = 0;
 var lastAction = 500; //start with the max. Array length
 var clickTimer;
@@ -139,8 +139,6 @@ function doTheThing() {
 function purchaseBadgeItems() {
 	// Spends badge points (BP's) when joining a new game.
 	// Dict contains the priority in terms of amount to buy (percentage of purchase). Probably a nicer way to do this...
-	// First version of priorities is based on this badge point table 'usefulness' from reddit:
-	// http://www.reddit.com/r/Steam/comments/39i0qc/psa_how_the_monster_game_works_an_indepth/
 	var abilityItemPriority = [
 		[ITEMS.GOLD_RAIN, 50],
 		[ITEMS.CRIPPLE_MONSTER, 10],
@@ -148,11 +146,11 @@ function purchaseBadgeItems() {
 		[ITEMS.MAXIMIZE_ELEMENT, 7],
 		[ITEMS.CRIT, 5],
 		[ITEMS.TREASURE, 5],
-		[ITEMS.REVIVE, 5],
-		[ITEMS.STEAL_HEALTH, 4],
+		//[ITEMS.REVIVE, 5],
+		//[ITEMS.STEAL_HEALTH, 4],
 		[ITEMS.GOD_MODE, 3],
-		[ITEMS.REFLECT_DAMAGE, 2],
-		[ITEMS.PUMPED_UP, 1]
+		//[ITEMS.REFLECT_DAMAGE, 2],
+		//[ITEMS.PUMPED_UP, 1]
 		//[ITEMS.THROW_MONEY, 0]
 		//[ITEMS.FEELING_LUCKY, 0]
 		//[ITEMS.WORMHOLE, 0]
