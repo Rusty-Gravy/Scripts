@@ -3,6 +3,7 @@
 // downloadURL - https://raw.githubusercontent.com/Rusty-Gravy/Scripts/master/autoPlay.user.js
 // description - A script that runs the Steam Monster Minigame for you.
 // match - http://steamcommunity.com/minigame/towerattack*
+// credit - /u/mouseasw + /u/winneonsword
 // ==/UserScript==
 
 // Optimized + Re-uploaded for ease of access without using any of that monkey bullshit.
@@ -139,6 +140,8 @@ function doTheThing() {
 function purchaseBadgeItems() {
 	// Spends badge points (BP's) when joining a new game.
 	// Dict contains the priority in terms of amount to buy (percentage of purchase). Probably a nicer way to do this...
+	// First version of priorities is based on this badge point table 'usefulness' from reddit:
+	// reddit.com/r/Steam/comments/39i0qc/psa_how_the_monster_game_works_an_indepth/
 	var abilityItemPriority = [
 		[ITEMS.GOLD_RAIN, 50],
 		[ITEMS.CRIPPLE_MONSTER, 10],
